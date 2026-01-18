@@ -24,7 +24,7 @@ MCP Gateway operates as both an MCP client (connecting to upstream servers) and 
 ```
 
 1. Gateway starts and reads configuration
-2. For each configured upstream server, Gateway spawns a subprocess and connects via stdio
+2. For each configured upstream server, Gateway connects via stdio (local) or HTTP/WebSocket (remote)
 3. Gateway fetches the tool catalog from each server
 4. All tools are indexed in a unified catalog with search capabilities
 5. AI clients connect to Gateway and can search/invoke any tool from any upstream
@@ -61,23 +61,49 @@ MCP Gateway reads configuration from a JSON file. By default, it looks for:
 
 ```json
 {
-  "server-name": {
+  "local-server": {
     "type": "local",
     "command": ["bun", "run", "/path/to/server.ts"],
     "enabled": true
   },
-  "another-server": {
-    "type": "local",
-    "command": ["npx", "@some/mcp-server"],
+  "remote-server": {
+    "type": "remote",
+    "url": "https://mcp.example.com",
+    "enabled": true
+  },
+  "websocket-server": {
+    "type": "remote",
+    "url": "wss://mcp.example.com/ws",
     "enabled": true
   }
 }
 ```
 
 Each entry specifies:
-- `type`: Currently only "local" is supported
-- `command`: Array with command and arguments to spawn the upstream server
+- `type`: `"local"` or `"remote"`
+- `command` (local only): Array with command and arguments to spawn the upstream server
+- `url` (remote only): Full URL of the remote MCP server
+- `transport` (optional, remote only): Override transport detection (`"streamable_http"` or `"websocket"`). Usually auto-detected from URL protocol.
 - `enabled`: Set to false to skip connecting to this server
+
+#### Remote Server Configuration
+
+Remote servers are auto-detected based on the URL protocol:
+- `http://` or `https://` → Streamable HTTP (recommended)
+- `ws://` or `wss://` → WebSocket
+
+```json
+{
+  "gh-grep": {
+    "type": "remote",
+    "url": "https://mcp.grep.app"
+  },
+  "custom-websocket": {
+    "type": "remote",
+    "url": "wss://my-server.com/mcp"
+  }
+}
+```
 
 ## Gateway Tools
 
@@ -164,7 +190,7 @@ The `serverKey` is the key name in your configuration file.
 ### Components
 
 - **MCPGateway class**: Main orchestrator
-- **Upstream connection manager**: Spawns and manages subprocess connections to MCP servers
+- **Upstream connection manager**: Manages connections to MCP servers (stdio for local, HTTP/WebSocket for remote)
 - **Tool catalog**: In-memory index of all available tools with metadata
 - **Job queue**: Handles async tool invocations with priority ordering and concurrency limits (max 3 concurrent by default)
 - **Search engine**: Relevance-based tool search with synonym support (k8s -> kubernetes, gh -> github, etc.)

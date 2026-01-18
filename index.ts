@@ -4,6 +4,8 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { WebSocketClientTransport } from "@modelcontextprotocol/sdk/client/websocket.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -16,7 +18,7 @@ interface UpstreamConfig {
   type: "local" | "remote";
   command?: string[];
   url?: string;
-  transport?: "sse" | "streamable_http";
+  transport?: "streamable_http" | "websocket";
   endpoint?: string;
   enabled?: boolean;
 }
@@ -420,7 +422,7 @@ class MCPGateway {
     if (config.type === "local") {
       await this.connectLocalUpstream(serverKey, config);
     } else {
-      console.error(`Remote upstreams not yet implemented: ${serverKey}`);
+      await this.connectRemoteUpstream(serverKey, config);
     }
   }
 
@@ -455,6 +457,46 @@ class MCPGateway {
 
     console.error(
       `[${serverKey}] Connected with ${this.countToolsForServer(serverKey)} tools`,
+    );
+  }
+
+  private async connectRemoteUpstream(
+    serverKey: string,
+    config: UpstreamConfig,
+  ) {
+    if (!config.url) {
+      throw new Error(`Missing URL for remote server: ${serverKey}`);
+    }
+
+    const url = new URL(config.url);
+    let transport;
+
+    // Determine transport type based on config or URL protocol
+    const transportType = config.transport || (url.protocol === "ws:" || url.protocol === "wss:" ? "websocket" : "streamable_http");
+
+    switch (transportType) {
+      case "websocket":
+        transport = new WebSocketClientTransport(url);
+        break;
+      case "streamable_http":
+      default:
+        transport = new StreamableHTTPClientTransport(url);
+        break;
+    }
+
+    const client = new Client(
+      { name: `gateway-${serverKey}`, version: "1.0.0" },
+      {},
+    );
+
+    await client.connect(transport);
+    this.upstreams.set(serverKey, client);
+
+    // Fetch tools
+    await this.refreshCatalog(serverKey, client);
+
+    console.error(
+      `[${serverKey}] Connected (${transportType}) with ${this.countToolsForServer(serverKey)} tools`,
     );
   }
 
