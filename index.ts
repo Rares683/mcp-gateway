@@ -10,10 +10,11 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, watch } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import MiniSearch from "minisearch";
+import { LRUCache } from "lru-cache";
 
 interface UpstreamConfig {
   type: "local" | "remote";
@@ -60,13 +61,24 @@ interface JobRecord {
 class MCPGateway {
   private server: Server;
   private config: GatewayConfig;
+  private configPath: string;
   private upstreams: Map<string, Client> = new Map();
   private catalog: Map<string, ToolCatalogEntry> = new Map();
-  private jobs: Map<string, JobRecord> = new Map();
+  private jobs = new LRUCache<string, JobRecord>({
+    max: 500,
+    ttl: 1000 * 60 * 60 * 24, // 24 hours
+  });
   private jobQueue: string[] = [];
   private runningJobs = 0;
   private maxConcurrentJobs = 3;
   private miniSearch: MiniSearch<ToolCatalogEntry> | null = null;
+  private indexDirty = true; // Mark index as needing rebuild
+
+  private ensureSearchIndex() {
+    if (!this.indexDirty) return;
+    this.initSearchIndex();
+    this.indexDirty = false;
+  }
 
   private initSearchIndex() {
     const tools = Array.from(this.catalog.values());
@@ -90,17 +102,18 @@ class MCPGateway {
   }
 
   constructor(configPath?: string) {
-    // Load config
-    const path =
+    // Determine config path
+    this.configPath =
       configPath ||
       process.env.MCP_GATEWAY_CONFIG ||
       join(homedir(), ".config", "mcp-gateway", "config.json");
 
-    if (!existsSync(path)) {
-      console.error(`Config not found: ${path}`);
+    // Load config
+    if (!existsSync(this.configPath)) {
+      console.error(`Config not found: ${this.configPath}`);
       this.config = {};
     } else {
-      this.config = JSON.parse(readFileSync(path, "utf-8"));
+      this.config = JSON.parse(readFileSync(this.configPath, "utf-8"));
     }
 
     // Initialize server
@@ -110,6 +123,14 @@ class MCPGateway {
     );
 
     this.setupHandlers();
+  }
+
+  private loadConfig(): GatewayConfig {
+    if (!existsSync(this.configPath)) {
+      console.error(`Config not found: ${this.configPath}`);
+      return {};
+    }
+    return JSON.parse(readFileSync(this.configPath, "utf-8"));
   }
 
   private setupHandlers() {
@@ -352,10 +373,8 @@ class MCPGateway {
   }
 
   private searchCatalog(query: string, filters: SearchFilters) {
-    // Initialize search index if needed
-    if (!this.miniSearch) {
-      this.initSearchIndex();
-    }
+    // Ensure search index is ready
+    this.ensureSearchIndex();
 
     if (!this.miniSearch || !query.trim()) {
       return [];
@@ -533,8 +552,8 @@ class MCPGateway {
       });
     }
 
-    // Rebuild search index
-    this.initSearchIndex();
+    // Mark index as dirty (will be rebuilt on first search or at startup)
+    this.indexDirty = true;
   }
 
   private countToolsForServer(serverKey: string): number {
@@ -543,36 +562,219 @@ class MCPGateway {
     ).length;
   }
 
+  private async connectWithRetry(
+    serverKey: string,
+    config: UpstreamConfig,
+    maxRetries = 5,
+    baseDelay = 1000,
+  ) {
+    let lastError: Error | undefined;
+
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await this.connectUpstream(serverKey, config);
+      } catch (error) {
+        lastError = error as Error;
+        if (i < maxRetries - 1) {
+          const delay = baseDelay * Math.pow(2, i);
+          console.error(
+            `[${serverKey}] Connection failed (attempt ${i + 1}/${maxRetries}), retrying in ${delay}ms...`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    console.error(`[${serverKey}] Failed after ${maxRetries} attempts: ${lastError?.message}`);
+    throw lastError;
+  }
+
   async start() {
     console.error("MCP Gateway starting...");
 
-    // Connect all upstreams
+    // Connect all upstreams in parallel with retry
     const connections = Object.entries(this.config)
       .filter(([_, cfg]) => cfg.enabled !== false)
-      .map(([key, cfg]) => this.connectUpstream(key, cfg));
+      .map(([key, cfg]) => this.connectWithRetry(key, cfg));
 
-    await Promise.all(connections);
+    const results = await Promise.allSettled(connections);
+
+    // Report results
+    let successful = 0;
+    let failed = 0;
+    for (const result of results) {
+      if (result.status === "fulfilled") successful++;
+      else {
+        failed++;
+        console.error(`Connection failed: ${result.reason?.message}`);
+      }
+    }
+
+    // Build search index once after all tools are loaded
+    this.initSearchIndex();
+    this.indexDirty = false;
 
     console.error(
-      `Gateway ready: ${this.catalog.size} tools from ${this.upstreams.size} servers`,
+      `Gateway ready: ${this.catalog.size} tools from ${successful} servers (${failed} failed)`,
     );
+
+    // Warmup search with a test query
+    this.searchCatalog("", {});
+    console.error("Search index warmed up");
 
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
+
+    // Start watching config file for changes
+    this.watchConfig();
+  }
+
+  private watchConfig() {
+    const configPath = this.configPath;
+    if (!configPath) return;
+
+    let debounceTimer: NodeJS.Timeout | null = null;
+
+    watch(configPath, (eventType: string) => {
+      if (eventType !== "change") return;
+
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+
+      debounceTimer = setTimeout(async () => {
+        try {
+          const newConfig = this.loadConfig();
+          await this.reloadConfig(newConfig);
+        } catch (error) {
+          console.error("Config reload error:", (error as Error).message);
+        }
+      }, 1000);
+    });
+
+    console.error(`  Watching config file: ${configPath}`);
   }
 
   async stop() {
     console.error("Shutting down gateway...");
 
-    for (const [key] of this.upstreams.entries()) {
-      console.error(`  Closing connection to ${key}...`);
+    // Stop accepting new jobs
+    this.maxConcurrentJobs = 0;
+
+    // Wait for running jobs to complete (max 30 seconds)
+    const shutdownTimeout = 30000;
+    const startTime = Date.now();
+
+    while (this.runningJobs > 0 && Date.now() - startTime < shutdownTimeout) {
+      console.error(`  Waiting for ${this.runningJobs} jobs to complete...`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
-    for (const client of this.upstreams.values()) {
-      await client.close();
+    if (this.runningJobs > 0) {
+      console.error(`  Timeout waiting for jobs, force shutdown with ${this.runningJobs} running`);
+    } else {
+      console.error("  All jobs completed");
+    }
+
+    // Close all upstream connections
+    console.error("  Closing upstream connections...");
+    for (const [key, client] of this.upstreams.entries()) {
+      try {
+        await client.close();
+        console.error(`    ${key} closed`);
+      } catch (error) {
+        console.error(`    ${key} close error: ${(error as Error).message}`);
+      }
     }
 
     console.error("Gateway shutdown complete");
+  }
+
+  private async reloadConfig(newConfig: GatewayConfig) {
+    console.error("Reloading configuration...");
+
+    const oldServers = new Set(Object.keys(this.config));
+    const newServers = new Set(Object.keys(newConfig));
+
+    const toRemove = [...oldServers].filter((s) => !newServers.has(s));
+    const toAdd = [...newServers].filter((s) => !oldServers.has(s));
+    const toUpdate = [...newServers].filter((s) => oldServers.has(s));
+
+    console.error(`  Servers to add: ${toAdd.length}`);
+    console.error(`  Servers to remove: ${toRemove.length}`);
+    console.error(`  Servers to update: ${toUpdate.length}`);
+
+    for (const serverKey of toRemove) {
+      const client = this.upstreams.get(serverKey);
+      if (client) {
+        try {
+          await client.close();
+          console.error(`    ${serverKey} disconnected`);
+        } catch (error) {
+          console.error(`    ${serverKey} disconnect error: ${(error as Error).message}`);
+        }
+        this.upstreams.delete(serverKey);
+
+        for (const [id, tool] of this.catalog.entries()) {
+          if (tool.server === serverKey) {
+            this.catalog.delete(id);
+          }
+        }
+      }
+    }
+
+    for (const serverKey of toUpdate) {
+      const oldCfg = this.config[serverKey];
+      const newCfg = newConfig[serverKey];
+
+      if (!oldCfg || !newCfg) continue;
+
+      if (oldCfg.enabled === false && newCfg.enabled !== false) {
+        try {
+          await this.connectWithRetry(serverKey, newCfg);
+          console.error(`    ${serverKey} connected`);
+        } catch (error) {
+          console.error(`    ${serverKey} connection failed: ${(error as Error).message}`);
+        }
+      } else if (oldCfg.enabled !== false && newCfg.enabled === false) {
+        const client = this.upstreams.get(serverKey);
+        if (client) {
+          try {
+            await client.close();
+            console.error(`    ${serverKey} disconnected`);
+          } catch (error) {
+            console.error(`    ${serverKey} disconnect error: ${(error as Error).message}`);
+          }
+          this.upstreams.delete(serverKey);
+
+          for (const [id, tool] of this.catalog.entries()) {
+            if (tool.server === serverKey) {
+              this.catalog.delete(id);
+            }
+          }
+        }
+      }
+    }
+
+    for (const serverKey of toAdd) {
+      const newCfg = newConfig[serverKey];
+      if (newCfg && newCfg.enabled !== false) {
+        try {
+          await this.connectWithRetry(serverKey, newCfg);
+          console.error(`    ${serverKey} connected`);
+        } catch (error) {
+          console.error(`    ${serverKey} connection failed: ${(error as Error).message}`);
+        }
+      }
+    }
+
+    this.config = newConfig;
+    this.initSearchIndex();
+    this.indexDirty = false;
+
+    console.error(
+      `Config reloaded: ${this.catalog.size} tools from ${this.upstreams.size} servers`,
+    );
   }
 }
 
