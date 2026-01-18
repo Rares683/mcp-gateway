@@ -2,59 +2,79 @@
 
 MCP Gateway is a server aggregation tool that connects multiple Model Context Protocol (MCP) servers into a single gateway, exposing all tools from connected servers through unified search, describe, and invoke interfaces.
 
-## What is MCP?
+## The Context Limit Problem
 
-The Model Context Protocol (MCP) is an open protocol that enables AI applications to connect with external data sources and tools. MCP servers expose tools that AI clients can call. However, running many MCP servers individually can become unwieldy.
+When connecting an client (Claude, Opencode, etc.) to multiple MCP servers, each server lists all its tools. With 10+ MCPs each exposing 10-50 tools, you can easily exceed 500+ tool descriptions in the system prompt:
 
-MCP Gateway solves this by acting as a proxy layer that:
-- Connects to multiple MCP servers simultaneously
-- Aggregates all available tools into a unified catalog
-- Provides a single MCP endpoint for AI clients to access tools from all servers
+```
+10 servers × 20 tools each = 200+ tool descriptions
+Each tool: 200-500 chars → 40KB-100KB of description just for tool schemas!
+```
+
+This creates two problems:
+1. **Context overflow**: Many LLMs hit their context limit before any conversation happens
+2. **Cognitive overload**: LLMs struggle to choose the right tool from hundreds of options
+
+## The Gateway Solution
+
+MCP Gateway solves this by providing **tool search** instead of dumping all tool schemas:
+
+```
+┌─────────────┐    gateway.search    ┌─────────────────┐    kubernetes::pods_list    ┌──────────────────┐
+│  AI Client  │ ───────────────────► │   MCP Gateway   │ ─────────────────────────►  │  Kubernetes MCP  │
+│             │                      │                 │                             │                  │
+│             │ ◄────────────────────│                 │ ◄─────────────────────────  │                  │
+└─────────────┘   pods_list schema   └─────────────────┘         pods output         └──────────────────┘
+```
 
 ## How It Works
 
 MCP Gateway operates as both an MCP client (connecting to upstream servers) and an MCP server (exposing tools to downstream clients):
 
 ```
-┌─────────────┐      MCP       ┌─────────────────┐      MCP       ┌──────────────────┐
-│  AI Client  │ ◄──────────── │   MCP Gateway   │ ◄──────────── │  Upstream Server │
-│ (Claude, etc)│               │  (this gateway) │               │  (playwright,    │
-└─────────────┘               └─────────────────┘               │   kubernetes...) │
-                                                                  └──────────────────┘
+┌──────────────┐      MCP       ┌─────────────────┐      MCP       ┌──────────────────┐
+│  AI Client   │ ◄────────────  │   MCP Gateway   │ ◄────────────  │  Upstream Server │
+│ (Claude, etc)│                │  (this gateway) │                │  (playwright,    │
+└──────────────┘                └─────────────────┘                │   kubernetes...) │
+                                                                   └──────────────────┘
 ```
 
 1. Gateway starts and reads configuration
 2. For each configured upstream server, Gateway connects via stdio (local) or HTTP/WebSocket (remote)
 3. Gateway fetches the tool catalog from each server
 4. All tools are indexed in a unified catalog with search capabilities
-5. AI clients connect to Gateway and can search/invoke any tool from any upstream
+5. AI clients connect to Gateway and use `gateway.search` to find relevant tools
+6. Only the tools the client actually needs are invoked
 
 ## Installation
 
-### From GitHub
+### OpenCode
 
-```bash
-# Run directly without installation
-bunx github:eznix86/mcp-gateway
+Add to your OpenCode MCP configuration:
 
-# Or install as a global command
-bun add -g github:eznix86/mcp-gateway
-mcp-gateway
+```json
+{
+  "mcpServers": {
+    "gateway": {
+      "command": "bunx",
+      "args": ["github:eznix86/mcp-gateway"]
+    }
+  }
+}
 ```
 
-### From Source
+Or for the built version:
 
-```bash
-git clone https://github.com/eznix86/mcp-gateway.git
-cd mcp-gateway
-bun install
-
-# Run directly (uses Bun to interpret TypeScript)
-bun run index.ts
-
-# Or build and run as JavaScript
-bun build index.ts --outdir dist --target node
-node dist/index.js
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mcp-gateway": {
+      "type": "local",
+      "command": ["bunx", "github:eznix86/mcp-gateway"]
+    },
+  }
+}
 ```
 
 ## Configuration
@@ -113,11 +133,9 @@ Remote servers are auto-detected based on the URL protocol:
 }
 ```
 
-## Gateway Tools
+## Available Tools
 
-When connected to MCP Gateway, clients have access to these gateway-specific tools:
-
-### gateway.search
+### `gateway.search`
 
 Search for tools across all connected servers.
 
@@ -134,7 +152,7 @@ Search for tools across all connected servers.
 
 Returns matching tools with relevance scores. Tools matching in name are boosted.
 
-### gateway.describe
+### `gateway.describe`
 
 Get detailed information about a specific tool.
 
@@ -146,7 +164,7 @@ Get detailed information about a specific tool.
 
 Returns the full tool schema including inputSchema.
 
-### gateway.invoke
+### `gateway.invoke`
 
 Execute a tool synchronously and get immediate results.
 
@@ -158,7 +176,7 @@ Execute a tool synchronously and get immediate results.
 }
 ```
 
-### gateway.invoke_async
+### `gateway.invoke_async`
 
 Start an asynchronous tool execution. Returns a job ID for polling.
 
@@ -171,7 +189,7 @@ Start an asynchronous tool execution. Returns a job ID for polling.
 }
 ```
 
-### gateway.invoke_status
+### `gateway.invoke_status`
 
 Check the status of an async job.
 
@@ -210,20 +228,14 @@ The search algorithm scores matches as follows:
 - Tools with matches in the name get a +10 bonus
 - Results are sorted by descending score
 
-## Running
+### Contributing
 
 ```bash
-# Default config location
+git clone https://github.com/eznix86/mcp-gateway.git
+cd mcp-gateway
+bun install
 bun run index.ts
-
-# Custom config path
-bun run index.ts /path/to/config.json
-
-# Or after building
-bun build index.ts --target node
-node dist/index.js
 ```
-
 
 ## License
 
