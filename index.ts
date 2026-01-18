@@ -444,6 +444,14 @@ class MCPGateway {
       args,
     });
 
+    // Log connection events
+    transport.onclose = () => {
+      console.error(`[${serverKey}] Connection closed`);
+    };
+    transport.onerror = (error) => {
+      console.error(`[${serverKey}] Connection error:`, error.message);
+    };
+
     const client = new Client(
       { name: `gateway-${serverKey}`, version: "1.0.0" },
       {},
@@ -483,6 +491,14 @@ class MCPGateway {
         transport = new StreamableHTTPClientTransport(url);
         break;
     }
+
+    // Log connection events
+    transport.onclose = () => {
+      console.error(`[${serverKey}] Connection closed`);
+    };
+    transport.onerror = (error) => {
+      console.error(`[${serverKey}] Connection error:`, error.message);
+    };
 
     const client = new Client(
       { name: `gateway-${serverKey}`, version: "1.0.0" },
@@ -543,12 +559,14 @@ class MCPGateway {
     console.error("Shutting down gateway...");
 
     for (const [key] of this.upstreams.entries()) {
-      console.error(`  Closing ${key}`);
+      console.error(`  Closing connection to ${key}...`);
     }
 
     for (const client of this.upstreams.values()) {
       await client.close();
     }
+
+    console.error("Gateway shutdown complete");
   }
 }
 
