@@ -150,7 +150,6 @@ Search for tools across all connected servers.
   limit: 10,  // optional, max 50
   filters: {
     server: "kubernetes",  // optional, filter by server name
-    sideEffecting: true    // optional, filter by side-effecting tools
   }
 }
 ```
@@ -224,14 +223,16 @@ The `serverKey` is the key name in your configuration file.
 - **Upstream connection manager**: Manages connections to MCP servers (stdio for local, HTTP/WebSocket for remote)
 - **Tool catalog**: In-memory index of all available tools with metadata
 - **Job queue**: Handles async tool invocations with priority ordering and concurrency limits (max 3 concurrent by default)
-- **Search engine**: Relevance-based tool search with synonym support (k8s -> kubernetes, gh -> github, etc.)
+- **Search engine**: MiniSearch with BM25 scoring and fuzzy matching
 
-### Search Scoring
+### Search Algorithm
 
-The search algorithm scores matches as follows:
-- Each matching token adds its length to the score
-- Tools with matches in the name get a +10 bonus
-- Results are sorted by descending score
+The search uses [MiniSearch](https://github.com/lucaong/minisearch) with BM25 ranking:
+
+- **BM25 scoring**: Relevance algorithm
+- **Field boosting**: Name matches (3x), title matches (2x), description/server matches (1x)
+- **Fuzzy matching**: Handles typos with 0.2 threshold (e.g., "kubenetes" → finds "kubernetes")
+- **Prefix search**: Partial word matching (e.g., "pod" matches "pods_list")
 
 ### Contributing
 

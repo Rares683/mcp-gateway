@@ -18,6 +18,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.2"
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "minisearch": "^7.2.0"
   }
 }

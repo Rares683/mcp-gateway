@@ -13,6 +13,7 @@ import {
 import { readFileSync, existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import MiniSearch from "minisearch";
 
 interface UpstreamConfig {
   type: "local" | "remote";
@@ -35,13 +36,11 @@ interface ToolCatalogEntry {
   description?: string;
   inputSchema?: any;
   outputSchema?: any;
-  sideEffecting?: boolean;
 }
 
 interface SearchFilters {
   server?: string;
   tags?: string[];
-  sideEffecting?: boolean;
 }
 
 interface JobRecord {
@@ -67,12 +66,28 @@ class MCPGateway {
   private jobQueue: string[] = [];
   private runningJobs = 0;
   private maxConcurrentJobs = 3;
-  private synonyms = new Map([
-    ["k8s", "kubernetes"],
-    ["pr", "pull request"],
-    ["gh", "github"],
-    ["pw", "playwright"],
-  ]);
+  private miniSearch: MiniSearch<ToolCatalogEntry> | null = null;
+
+  private initSearchIndex() {
+    const tools = Array.from(this.catalog.values());
+    if (tools.length === 0) {
+      this.miniSearch = null;
+      return;
+    }
+
+    this.miniSearch = new MiniSearch<ToolCatalogEntry>({
+      fields: ["name", "title", "description", "server"],
+      storeFields: ["id", "server", "name", "title", "description", "inputSchema", "outputSchema", "sideEffecting"],
+      searchOptions: {
+        boost: { name: 3, title: 2 },
+        fuzzy: 0.2,
+        prefix: true,
+        combineWith: "OR",
+      },
+    });
+
+    this.miniSearch.addAll(tools);
+  }
 
   constructor(configPath?: string) {
     // Load config
@@ -119,10 +134,6 @@ class MCPGateway {
                   server: {
                     type: "string",
                     description: "Filter by server key",
-                  },
-                  sideEffecting: {
-                    type: "boolean",
-                    description: "Filter by side-effecting tools",
                   },
                 },
               },
@@ -341,40 +352,32 @@ class MCPGateway {
   }
 
   private searchCatalog(query: string, filters: SearchFilters) {
-    const normalizedQuery = query.toLowerCase();
-    const queryTokens = normalizedQuery
-      .split(/\s+/)
-      .map((t) => this.synonyms.get(t) || t);
-
-    const results: Array<ToolCatalogEntry & { score: number }> = [];
-
-    for (const tool of this.catalog.values()) {
-      // Apply filters
-      if (filters.server && tool.server !== filters.server) continue;
-      if (
-        filters.sideEffecting !== undefined &&
-        tool.sideEffecting !== filters.sideEffecting
-      )
-        continue;
-
-      // Calculate score
-      let score = 0;
-      const searchText =
-        `${tool.name} ${tool.title || ""} ${tool.description || ""} ${tool.server}`.toLowerCase();
-
-      for (const token of queryTokens) {
-        if (searchText.includes(token)) {
-          score += token.length; // Longer matches = higher score
-          if (tool.name.toLowerCase().includes(token)) score += 10; // Boost name matches
-        }
-      }
-
-      if (score > 0) {
-        results.push({ ...tool, score });
-      }
+    // Initialize search index if needed
+    if (!this.miniSearch) {
+      this.initSearchIndex();
     }
 
-    return results.sort((a, b) => b.score - a.score);
+    if (!this.miniSearch || !query.trim()) {
+      return [];
+    }
+
+    // Perform search with BM25 scoring
+    const results = this.miniSearch.search(query.toLowerCase()).slice(0, 100);
+
+    // Apply filters and sort
+    const filtered = results
+      .filter((result) => {
+        // Server filter
+        if (filters.server && result.server !== filters.server) return false;
+        return true;
+      })
+      .map((result) => ({
+        ...(result as any),
+        score: result.score || 0,
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    return filtered;
   }
 
   private async processJobQueue() {
@@ -529,6 +532,9 @@ class MCPGateway {
         inputSchema: tool.inputSchema,
       });
     }
+
+    // Rebuild search index
+    this.initSearchIndex();
   }
 
   private countToolsForServer(serverKey: string): number {
