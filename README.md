@@ -48,9 +48,9 @@ MCP Gateway operates as both an MCP client (connecting to upstream servers) and 
 
 ## Installation
 
-### OpenCode
+### Claude Code
 
-Add to your OpenCode MCP configuration:
+Add to your Claude MCP configuration:
 
 ```json
 {
@@ -63,7 +63,9 @@ Add to your OpenCode MCP configuration:
 }
 ```
 
-Or for the built version:
+### OpenCode
+
+Add to your OpenCode MCP configuration:
 
 ```json
 {
@@ -76,6 +78,8 @@ Or for the built version:
   }
 }
 ```
+
+You may append your global AGENTS.md (`~/.config/opencode/AGENTS.md`) with this [template](./templates/AGENTS.md)
 
 ## Configuration
 
@@ -92,7 +96,6 @@ MCP Gateway reads configuration from a JSON file. By default, it looks for:
   "local-server": {
     "type": "local",
     "command": ["bun", "run", "/path/to/server.ts"],
-    "enabled": true
   },
   "remote-server": {
     "type": "remote",
