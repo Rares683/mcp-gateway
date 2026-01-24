@@ -24914,7 +24914,7 @@ var package_default = {
     "build:docker": "bun build src/docker.ts --target bun --outfile=gateway",
     "docker:build": "docker build -t mcp-gateway .",
     "docker:run": "docker run -p 3000:3000 -v ./examples/config.json:/home/gateway/.config/mcp-gateway/config.json:ro mcp-gateway",
-    preversion: 'bun run build && git add dist && git commit -m "chore: update build" || true',
+    preversion: 'bun run build && git add dist && git diff --cached --quiet || git commit -m "chore: update build"',
     prepublishOnly: "bun run build",
     postversion: "git push && git push --tag"
   },
