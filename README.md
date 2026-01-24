@@ -1,5 +1,10 @@
 # MCP Gateway
 
+[![npm version](https://img.shields.io/npm/v/@eznix/mcp-gateway)](https://www.npmjs.com/package/@eznix/mcp-gateway)
+[![npm downloads](https://img.shields.io/npm/dm/@eznix/mcp-gateway)](https://www.npmjs.com/package/@eznix/mcp-gateway)
+[![License](https://img.shields.io/npm/l/@eznix/mcp-gateway)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/eznix86/mcp-gateway)](https://github.com/eznix86/mcp-gateway/stargazers)
+
 MCP Gateway is a server aggregation tool that connects multiple Model Context Protocol (MCP) servers into a single gateway, exposing all tools from connected servers through unified search, describe, and invoke interfaces and it exposes only 5 tools.
 
 ## The Context Limit Problem
@@ -59,7 +64,7 @@ Add to your Claude MCP configuration:
   "mcpServers": {
     "gateway": {
       "command": "bunx",
-      "args": ["github:eznix86/mcp-gateway"]
+      "args": ["@eznix/mcp-gateway@latest"]
     }
   }
 }
@@ -75,7 +80,7 @@ Add to your OpenCode MCP configuration:
   "mcp": {
     "mcp-gateway": {
       "type": "local",
-      "command": ["bunx", "github:eznix86/mcp-gateway"]
+      "command": ["bunx", "@eznix/mcp-gateway@latest"]
     },
   }
 }
