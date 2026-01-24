@@ -24881,8 +24881,8 @@ class ConnectionManager {
 }
 // package.json
 var package_default = {
-  name: "mcp-gateway",
-  version: "1.3.0",
+  name: "@eznix/mcp-gateway",
+  version: "1.3.3",
   description: "MCP Gateway - Aggregate multiple MCP servers into a single gateway",
   type: "module",
   bin: {
@@ -26178,9 +26178,12 @@ class MCPGateway {
   }
   async startWithStdio() {
     console.error("MCP Gateway starting (stdio)...");
-    await this.connectAll();
     const transport = new StdioServerTransport;
     await this.server.connect(transport);
+    console.log(`__MCP_GATEWAY_STDIO_READY__`);
+    this.connectAll().catch((err) => {
+      console.error(`Background connection error: ${err.message}`);
+    });
     this.config.watch((cfg) => this.handleConfigChange(cfg));
   }
   async startWithHttp(port = 3000) {
